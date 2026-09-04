@@ -1,560 +1,204 @@
-import streamlit as st
-import pandas as pd
 import re
-from collections import Counter
+import pandas as pd
+import streamlit as st
 
-# --------------------------------------------------
-# PAGE CONFIG
-# --------------------------------------------------
+st.set_page_config(page_title="Nykaa Fashion AI Discovery Engine", page_icon="🧠", layout="wide")
 
-st.set_page_config(
-    page_title="Nykaa Fashion AI Discovery Engine",
-    page_icon="🔎",
-    layout="wide"
-)
+st.title("🧠 Nykaa Fashion — AI Discovery Engine")
+st.caption("Upload primary survey/interview feedback and discover themes, intent, behaviour and opportunities.")
 
-# --------------------------------------------------
-# HEADER
-# --------------------------------------------------
-
-st.title("🔎 Nykaa Fashion")
-st.subheader("AI-Powered Discovery Engine")
-
-st.write(
-    """
-Analyze fashion-shopping feedback to identify:
-**user intent, purchase blockers, uncertainty, behaviours,
-workarounds, user segments and opportunity areas.**
-"""
-)
-
-st.divider()
-
-# --------------------------------------------------
-# SIDEBAR
-# --------------------------------------------------
-
-st.sidebar.header("About this engine")
-
-st.sidebar.write(
-    """
-This prototype demonstrates how AI-assisted discovery can
-move beyond sentiment analysis and identify recurring
-problems that may influence Wishlist → Purchase conversion.
-"""
-)
-
-st.sidebar.info(
-    """
-Prototype note:
-This project uses illustrative/public-style feedback.
-It does not use Nykaa Fashion internal customer data.
-"""
-)
-
-# --------------------------------------------------
-# SAMPLE DATA
-# --------------------------------------------------
-
-sample_feedback = """
-I love this dress and saved it, but I am not sure about the size.
-The reviews say it runs small so I will wait before buying.
-
-I added this kurta to my wishlist because I liked the design.
-I am waiting for a sale before I purchase it.
-
-The product looks great but I don't know whether the colour
-will look the same in real life.
-
-I saved these shoes because I am comparing them with another
-pair on Myntra.
-
-I like the jeans but I am confused about which size to order.
-I checked YouTube reviews before deciding.
-
-I want this handbag but the price feels high. I will wait
-for a discount.
-
-I saved this dress for a wedding. I need to check whether
-the material looks premium enough.
-
-The reviews are mixed. Some people say the fit is perfect
-and others say it is too tight.
-
-I usually save products I like and come back later.
-Sometimes I never buy them.
-
-I want to purchase this top but I need to see how it looks
-on someone with a similar body type.
-
-I added this product to compare it with AJIO before buying.
-
-I like the product but I am worried about returns if the size
-doesn't fit.
-
-I saved this item because I may need it next month.
-
-The product is beautiful but I am waiting for payday.
-
-I checked Instagram to see how influencers styled this dress.
-
-I like the product but I need more customer photos before
-I decide.
-
-I saved this product just so I don't lose it.
-
-I am not sure if the quality is worth the price.
-
-The size chart is confusing and I don't know which size to pick.
-
-I have three dresses saved and I cannot decide which one
-is better for the occasion.
-
-I am waiting to see if the price drops.
-
-The reviews helped me decide that the product may not be
-right for me.
-
-I want this for a party but I am looking at other options too.
-
-I saved it because it looked nice, but I don't actually
-plan to buy it right now.
-
-I need to know whether the fabric is transparent.
-
-The product photos look good but I want to see customer
-pictures before purchasing.
-"""
-
-# --------------------------------------------------
-# INPUT
-# --------------------------------------------------
-
-st.header("1. Add User Feedback")
-
-input_mode = st.radio(
-    "Choose input",
-    ["Use sample feedback", "Paste your own feedback"],
-    horizontal=True
-)
-
-if input_mode == "Use sample feedback":
-    feedback = st.text_area(
-        "Feedback dataset",
-        sample_feedback,
-        height=300
-    )
-else:
-    feedback = st.text_area(
-        "Paste reviews / comments / conversations",
-        height=300,
-        placeholder="Paste multiple feedback items here..."
-    )
-
-# --------------------------------------------------
-# CLASSIFICATION RULES
-# --------------------------------------------------
-
-themes = {
-    "Fit & Size Confidence": [
-        "size", "fit", "tight", "loose", "body type",
-        "size chart", "sizing"
-    ],
-
-    "Price Uncertainty": [
-        "price", "expensive", "discount", "sale",
-        "payday", "price drop", "worth"
-    ],
-
-    "Trust & Product Quality": [
-        "quality", "premium", "real life", "transparent",
-        "fabric", "customer photos", "photos"
-    ],
-
-    "Reviews & Social Validation": [
-        "reviews", "review", "youtube", "instagram",
-        "influencer", "customer"
-    ],
-
-    "Alternative Comparison": [
-        "compare", "comparison", "myntra", "ajio",
-        "other options", "another"
-    ],
-
-    "Occasion & Styling": [
-        "wedding", "party", "occasion", "styled",
-        "styling", "dress"
-    ],
-
-    "Bookmarking Behaviour": [
-        "don't lose", "come back later",
-        "may need", "never buy", "save products"
-    ],
-
-    "Return / Exchange Risk": [
-        "return", "returns", "exchange",
-        "doesn't fit", "refund"
-    ]
+THEMES = {
+    "Price / Discount": ["price","discount","offer","sale","coupon","budget","expensive","cost","cheaper","deal"],
+    "Fit / Size Confidence": ["size","fit","fitting","measurement","model","body type","length"],
+    "Quality / Product Confidence": ["quality","material","fabric","durable","genuine","authentic","trust","finish","colour","color"],
+    "Reviews / Social Proof": ["review","reviews","rating","ratings","comment","feedback","recommend"],
+    "Competitor Comparison": ["myntra","amazon","flipkart","ajio","meesho","other app","other site","compare","comparison","competitor","elsewhere","better option"],
+    "Return / Exchange Risk": ["return","returns","exchange","refund","replacement"],
+    "Stock / Availability": ["stock","out of stock","sold out","available","availability","size unavailable"],
+    "Delivery / Timing": ["delivery","deliver","shipping","arrive","arrival","late","urgent"],
+    "Reminder / Forgetting": ["forgot","forget","reminder","remember","notification","notify"],
+    "Occasion / Need": ["occasion","wedding","party","function","event","need","needed","urgent","use"]
 }
 
-# --------------------------------------------------
-# CLASSIFICATION FUNCTION
-# --------------------------------------------------
+INTENT = {
+    "Genuine Purchase Intent": ["buy","purchase","planning to buy","waiting for discount","waiting for sale","waiting for offer","budget","need it"],
+    "Bookmark-Low Intent": ["just liked","browsing","mood board","exploring","not planning","no intention"]
+}
 
-def classify_feedback(text):
+BEHAVIOUR = {
+    "Postponing Purchase": ["wait","waiting","later","postpone","delay","delayed","salary","discount","sale","offer","budget"],
+    "Comparing Alternatives": ["compare","comparison","other app","other site","myntra","amazon","ajio","flipkart","meesho","elsewhere","better option"],
+    "Seeking More Information": ["review","reviews","rating","size","fit","quality","return","exchange","material","information","check"],
+    "Exploring Product": ["browsing","exploring","just liked","mood board","liked it","save","wishlist"]
+}
 
-    text_lower = text.lower()
+SEGMENT = {
+    "High-Intent Shopper": ["buy","purchase","waiting for discount","waiting for sale","planning to buy","need it","budget"],
+    "Confidence-Seeking Shopper": ["review","reviews","rating","size","fit","quality","return","exchange","material","trust"],
+    "Deal-Seeking Shopper": ["price","discount","sale","offer","coupon","budget","expensive","deal"],
+    "Exploring Shopper": ["browsing","exploring","just liked","mood board"]
+}
 
-    matched_themes = []
+IMPACT = {
+    "Price / Discount":5, "Fit / Size Confidence":5, "Quality / Product Confidence":5,
+    "Reviews / Social Proof":4, "Competitor Comparison":5, "Return / Exchange Risk":4,
+    "Stock / Availability":4, "Delivery / Timing":3, "Reminder / Forgetting":3, "Occasion / Need":3
+}
 
-    for theme, keywords in themes.items():
+def norm(x):
+    return re.sub(r"\s+", " ", str(x).lower()).strip()
 
-        for keyword in keywords:
+def matches(text, words):
+    t = norm(text)
+    return [w for w in words if w.lower() in t]
 
-            if keyword in text_lower:
-                matched_themes.append(theme)
-                break
+def classify(text, rules):
+    scores = {k: len(matches(text,v)) for k,v in rules.items()}
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "Unclear"
 
-    # Intent classification
-    genuine_intent_words = [
-        "buy", "purchase", "waiting for",
-        "decide", "want", "will purchase"
-    ]
+def themes_found(text):
+    found = [k for k,v in THEMES.items() if matches(text,v)]
+    return found or ["Other / Unclassified"]
 
-    bookmark_words = [
-        "don't lose", "come back later",
-        "never buy", "may need"
-    ]
+def primary_theme(text):
+    scores = {k:len(matches(text,v)) for k,v in THEMES.items()}
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "Other / Unclassified"
 
-    if any(word in text_lower for word in bookmark_words):
-        intent = "Bookmark / Low Intent"
+def load_file(f):
+    if f.name.lower().endswith(".csv"):
+        return pd.read_csv(f)
+    return pd.read_excel(f)
 
-    elif any(word in text_lower for word in genuine_intent_words):
-        intent = "Genuine Purchase Intent"
+def prepare(df):
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
 
-    else:
-        intent = "Unclear Intent"
+    # Preferred format: source_type, respondent_id, feedback
+    if "feedback" in df.columns:
+        if "source_type" not in df.columns:
+            df["source_type"] = "Unknown"
+        if "respondent_id" not in df.columns:
+            df["respondent_id"] = [f"R{i+1}" for i in range(len(df))]
+        out = df[["source_type","respondent_id","feedback"]].copy()
+        out["feedback"] = out["feedback"].fillna("").astype(str).str.strip()
+        return out[out["feedback"].str.len() > 0].reset_index(drop=True)
 
-    # Behaviour
-    if any(word in text_lower for word in [
-        "wait", "waiting", "payday", "later"
-    ]):
-        behaviour = "Postponing Purchase"
+    # Fallback for raw survey/interview files: combine text columns
+    text_cols = df.select_dtypes(include=["object","string"]).columns.tolist()
+    if not text_cols:
+        raise ValueError("No text columns found.")
 
-    elif any(word in text_lower for word in [
-        "compare", "looking at other"
-    ]):
-        behaviour = "Comparing Alternatives"
+    source_col = next((c for c in df.columns if str(c).lower() in ["source","source_type","research_source"]), None)
+    id_col = next((c for c in df.columns if str(c).lower() in ["id","respondent_id","respondent","name"]), None)
 
-    elif any(word in text_lower for word in [
-        "checked", "check", "youtube",
-        "instagram", "reviews"
-    ]):
-        behaviour = "Seeking More Information"
-
-    else:
-        behaviour = "Exploring Product"
-
-    # Segment
-    if (
-        "buy" in text_lower
-        or "purchase" in text_lower
-        or "decide" in text_lower
-    ):
-        segment = "High-Intent Shopper"
-
-    elif "save" in text_lower:
-        segment = "Exploring Shopper"
-
-    else:
-        segment = "Unclear"
-
-    return {
-        "themes": matched_themes,
-        "intent": intent,
-        "behaviour": behaviour,
-        "segment": segment
-    }
-
-
-# --------------------------------------------------
-# ANALYSE BUTTON
-# --------------------------------------------------
-
-if st.button(
-    "🔍 Analyze Feedback",
-    type="primary",
-    use_container_width=True
-):
-
-    if not feedback.strip():
-
-        st.error("Please provide feedback before analysing.")
-
-    else:
-
-        # Split feedback into individual items
-        items = [
-            item.strip()
-            for item in re.split(r"\n+", feedback)
-            if item.strip()
-        ]
-
-        results = []
-
-        for item in items:
-
-            classification = classify_feedback(item)
-
-            results.append({
-                "Feedback": item,
-                "Intent": classification["intent"],
-                "Behaviour": classification["behaviour"],
-                "Segment": classification["segment"],
-                "Themes": ", ".join(
-                    classification["themes"]
-                )
+    rows = []
+    for i,row in df.iterrows():
+        parts = []
+        for c in text_cols:
+            if c in [source_col,id_col]:
+                continue
+            if pd.notna(row[c]) and str(row[c]).strip():
+                parts.append(f"{c}: {row[c]}")
+        if parts:
+            rows.append({
+                "source_type": row[source_col] if source_col else "Uploaded Research",
+                "respondent_id": row[id_col] if id_col else f"R{i+1}",
+                "feedback": " | ".join(parts)
             })
+    return pd.DataFrame(rows)
 
-        df = pd.DataFrame(results)
+uploaded = st.file_uploader("Upload primary research data", type=["csv","xlsx"])
+st.info("Recommended file: Nykaa_AI_Discovery_Engine_Combined_Input.csv")
 
-        # --------------------------------------------------
-        # SUMMARY
-        # --------------------------------------------------
+if uploaded is None:
+    st.stop()
 
-        st.divider()
+try:
+    df = prepare(load_file(uploaded))
+except Exception as e:
+    st.error(f"Could not process file: {e}")
+    st.stop()
 
-        st.header("2. Discovery Summary")
+rows = []
+for _,r in df.iterrows():
+    text = r["feedback"]
+    rows.append({
+        "source_type": r["source_type"],
+        "respondent_id": r["respondent_id"],
+        "feedback": text,
+        "primary_theme": primary_theme(text),
+        "themes_found": ", ".join(themes_found(text)),
+        "intent": classify(text, INTENT),
+        "behaviour": classify(text, BEHAVIOUR),
+        "segment": classify(text, SEGMENT)
+    })
 
-        col1, col2, col3, col4 = st.columns(4)
+result = pd.DataFrame(rows)
 
-        with col1:
-            st.metric(
-                "Feedback Items",
-                len(df)
-            )
+st.success(f"Successfully loaded {len(result)} research records.")
 
-        with col2:
-            high_intent = (
-                df["Intent"]
-                .eq("Genuine Purchase Intent")
-                .sum()
-            )
-
-            st.metric(
-                "Genuine Intent",
-                high_intent
-            )
-
-        with col3:
-            delayed = (
-                df["Behaviour"]
-                .eq("Postponing Purchase")
-                .sum()
-            )
-
-            st.metric(
-                "Purchase Delays",
-                delayed
-            )
-
-        with col4:
-            segments = df["Segment"].nunique()
-
-            st.metric(
-                "Segments",
-                segments
-            )
-
-        # --------------------------------------------------
-        # THEME FREQUENCY
-        # --------------------------------------------------
-
-        st.header("3. Opportunity Themes")
-
-        theme_counter = Counter()
-
-        for themes_found in df["Themes"]:
-
-            for theme in themes_found.split(", "):
-
-                if theme.strip():
-                    theme_counter[theme] += 1
-
-        theme_data = []
-
-        for theme, count in theme_counter.most_common():
-
-            percentage = (
-                count / len(df) * 100
-            )
-
-            # Opportunity score
-            score = round(
-                (count * 2)
-                + (
-                    delayed * 1.5
-                    if "Confidence" in theme
-                    or "Price" in theme
-                    or "Risk" in theme
-                    else delayed
-                ),
-                1
-            )
-
-            theme_data.append({
-                "Opportunity Area": theme,
-                "Feedback Count": count,
-                "Share %": round(percentage, 1),
-                "Opportunity Score": score
-            })
-
-        theme_df = pd.DataFrame(theme_data)
-
-        if not theme_df.empty:
-
-            st.dataframe(
-                theme_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            # --------------------------------------------------
-            # TOP OPPORTUNITY
-            # --------------------------------------------------
-
-            top_opportunity = theme_df.iloc[0][
-                "Opportunity Area"
-            ]
-
-            st.success(
-                f"""
-### 🎯 Top Opportunity Area
-
-**{top_opportunity}**
-
-This theme appears frequently in the feedback and
-may represent a meaningful opportunity to investigate
-for Wishlist → Purchase conversion.
-"""
-            )
-
-        # --------------------------------------------------
-        # SEGMENTS
-        # --------------------------------------------------
-
-        st.header("4. User Segments")
-
-        segment_counts = (
-            df["Segment"]
-            .value_counts()
-            .reset_index()
-        )
-
-        segment_counts.columns = [
-            "Segment",
-            "Feedback Count"
-        ]
-
-        st.dataframe(
-            segment_counts,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # --------------------------------------------------
-        # INTENT
-        # --------------------------------------------------
-
-        st.header("5. Wishlist Intent")
-
-        intent_counts = (
-            df["Intent"]
-            .value_counts()
-            .reset_index()
-        )
-
-        intent_counts.columns = [
-            "Intent Type",
-            "Feedback Count"
-        ]
-
-        st.dataframe(
-            intent_counts,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # --------------------------------------------------
-        # BEHAVIOUR
-        # --------------------------------------------------
-
-        st.header("6. Purchase Behaviour")
-
-        behaviour_counts = (
-            df["Behaviour"]
-            .value_counts()
-            .reset_index()
-        )
-
-        behaviour_counts.columns = [
-            "Behaviour",
-            "Feedback Count"
-        ]
-
-        st.dataframe(
-            behaviour_counts,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # --------------------------------------------------
-        # RESEARCH QUESTIONS
-        # --------------------------------------------------
-
-        st.header("7. Research Questions")
-
-        questions = [
-            "Why do high-intent users remain uncertain about fit and size?",
-            "What information do users seek before purchasing a wishlisted item?",
-            "How often do users compare wishlisted products with Myntra/AJIO?",
-            "When does wishlist usage represent genuine intent versus bookmarking?",
-            "How much does price uncertainty contribute to purchase postponement?",
-            "How do customer reviews and social validation influence the final decision?",
-            "What workarounds do users use to reduce purchase uncertainty?"
-        ]
-
-        for question in questions:
-            st.write("🔹", question)
-
-        # --------------------------------------------------
-        # RAW ANALYSIS
-        # --------------------------------------------------
-
-        st.header("8. Feedback-Level Analysis")
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # --------------------------------------------------
-        # DOWNLOAD
-        # --------------------------------------------------
-
-        csv = df.to_csv(index=False)
-
-        st.download_button(
-            "⬇️ Download Analysis CSV",
-            csv,
-            "nykaa_discovery_analysis.csv",
-            "text/csv"
-        )
+c1,c2,c3,c4 = st.columns(4)
+c1.metric("Total Records", len(result))
+c2.metric("Survey", int(result["source_type"].astype(str).str.lower().str.contains("survey").sum()))
+c3.metric("Interviews", int(result["source_type"].astype(str).str.lower().str.contains("interview").sum()))
+c4.metric("Other", len(result)-int(result["source_type"].astype(str).str.lower().str.contains("survey").sum())-int(result["source_type"].astype(str).str.lower().str.contains("interview").sum()))
 
 st.divider()
 
-st.caption(
-    "Nykaa Fashion Product Management Graduation Project | "
-    "Discovery Engine Prototype | Illustrative/Public-style data"
+st.header("1. Discovery Themes")
+themes = result["primary_theme"].value_counts().rename_axis("Theme").reset_index(name="Records")
+themes["Share %"] = (themes["Records"]/len(result)*100).round(1)
+themes["Impact"] = themes["Theme"].map(IMPACT).fillna(2)
+themes["Opportunity Score"] = themes["Records"] * themes["Impact"]
+themes["Priority"] = themes["Opportunity Score"].apply(lambda x: "Very High" if x >= 25 else ("High" if x >= 10 else "Medium"))
+st.dataframe(themes[["Theme","Records","Share %","Opportunity Score","Priority"]], use_container_width=True, hide_index=True)
+
+st.header("2. Purchase Intent")
+intent = result["intent"].value_counts().rename_axis("Intent").reset_index(name="Records")
+intent["Share %"] = (intent["Records"]/len(result)*100).round(1)
+st.dataframe(intent, use_container_width=True, hide_index=True)
+
+st.header("3. Purchase Behaviour")
+beh = result["behaviour"].value_counts().rename_axis("Behaviour").reset_index(name="Records")
+beh["Share %"] = (beh["Records"]/len(result)*100).round(1)
+st.dataframe(beh, use_container_width=True, hide_index=True)
+
+st.header("4. User Segments")
+seg = result["segment"].value_counts().rename_axis("Segment").reset_index(name="Records")
+seg["Share %"] = (seg["Records"]/len(result)*100).round(1)
+st.dataframe(seg, use_container_width=True, hide_index=True)
+
+st.header("5. Evidence")
+theme_choice = st.selectbox("Select a theme", themes["Theme"].tolist())
+evidence = result[result["primary_theme"] == theme_choice][["source_type","respondent_id","feedback","intent","behaviour"]]
+st.dataframe(evidence, use_container_width=True, hide_index=True)
+
+st.header("6. Priority Opportunity Areas")
+for _,r in themes.sort_values("Opportunity Score",ascending=False).head(5).iterrows():
+    st.markdown(f"**{r['Priority']} — {r['Theme']}**: {int(r['Records'])} record(s), {r['Share %']}% of records. Opportunity score: **{int(r['Opportunity Score'])}**.")
+
+st.header("7. Research Questions")
+questions = [
+    "Why do high-intent wishlist shoppers postpone purchase after saving an item?",
+    "How strongly does waiting for a discount affect wishlist-to-purchase conversion?",
+    "What information is missing when users hesitate because of fit, size or quality?",
+    "How often does competitor comparison cause wishlist purchase leakage?",
+    "Which signals would give shoppers enough confidence to purchase now?",
+    "Does a generic reminder create action, or is a contextual trigger required?"
+]
+for q in questions:
+    st.markdown(f"- {q}")
+
+st.header("8. Record-Level Analysis")
+st.dataframe(result, use_container_width=True, hide_index=True)
+
+st.download_button(
+    "⬇️ Download Analyzed CSV",
+    result.to_csv(index=False).encode("utf-8"),
+    "Nykaa_AI_Discovery_Analysis.csv",
+    "text/csv"
 )
+
+st.caption("Prototype note: labels use transparent keyword/rule-based heuristics. Validate conclusions against the original survey/interview evidence.")
